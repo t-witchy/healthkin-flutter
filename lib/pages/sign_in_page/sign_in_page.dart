@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:healthkin_flutter/core/api/auth_token_api.dart';
+import 'package:healthkin_flutter/core/api/creature_api.dart';
 import 'package:healthkin_flutter/core/provider/auth_provider.dart';
+import 'package:healthkin_flutter/pages/select_creature/select_creature_screen.dart';
 import 'package:healthkin_flutter/pages/sign_up_page/sign_up_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -23,17 +26,71 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _onLoginPressed() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
     final auth = context.read<AuthProvider>();
+    final tokenApi = AuthTokenApi();
+
+    // First, obtain an auth token from `/api/token/`.
+    try {
+      await tokenApi.loginWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+        ),
+      );
+      return;
+    }
+
+    // Then mark the app-level auth state as logged in (local provider logic).
     await auth.login(
       context,
-      _emailController.text.trim(),
-      _passwordController.text,
+      email,
+      password,
     );
 
     if (!mounted) return;
 
     if (auth.isLoggedIn) {
-      Navigator.of(context).pushReplacementNamed('/main');
+      // After successful login, check if the user already has an active creature.
+      final api = CreatureApi();
+      try {
+        final active = await api.getActiveCreature();
+        if (!mounted) return;
+
+        if (active.hasActive) {
+          // User already has an active creature – go straight to main.
+          Navigator.of(context).pushReplacementNamed('/main');
+        } else {
+          // No active creature – show the selection screen.
+          final result = await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const SelectCreatureScreen(),
+            ),
+          );
+
+          if (!mounted) return;
+
+          // If a creature was selected/created, continue to main.
+          if (result != null) {
+            Navigator.of(context).pushReplacementNamed('/main');
+          }
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+          ),
+        );
+      }
+
       return;
     }
 
@@ -44,7 +101,6 @@ class _LoginPageState extends State<LoginPage> {
         ),
       );
     }
-    // Navigation after successful login can be wired here later.
   }
 
   @override

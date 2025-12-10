@@ -63,7 +63,7 @@ class AuthRepository {
   final http.Client _client;
 
   AuthRepository({
-    this.baseUrl = 'https://web.healthkin.co.uk',
+    this.baseUrl = 'https://8cfc7bfb89ae.ngrok-free.app',
     http.Client? client,
   }) : _client = client ?? http.Client();
 

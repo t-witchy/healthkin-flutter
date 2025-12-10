@@ -68,6 +68,7 @@ flutter:
     - assets/images/home_icon.png
     - assets/images/friends_icon.png
     - assets/images/fuffles.png
+    - assets/images/garden.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

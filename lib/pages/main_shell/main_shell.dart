@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/pages/friends_garden/friends_garden_screen.dart';
 import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
 
 class MainShell extends StatefulWidget {
@@ -18,7 +20,7 @@ class _MainShellState extends State<MainShell> {
     final pages = <Widget>[
       const _HomeScreen(),
       const _ProgressScreen(),
-      const _FriendsScreen(),
+      const FriendsGardenScreen(),
     ];
 
     return Scaffold(
@@ -75,14 +77,49 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class _HomeScreen extends StatelessWidget {
+class _HomeScreen extends StatefulWidget {
   const _HomeScreen();
+
+  @override
+  State<_HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<_HomeScreen> {
+  final CreatureApi _creatureApi = CreatureApi();
+
+  ActiveCreatureResponse? _activeResponse;
+  bool _isLoadingCreature = true;
+  String? _creatureError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveCreature();
+  }
+
+  Future<void> _loadActiveCreature() async {
+    try {
+      final response = await _creatureApi.getActiveCreature();
+      if (!mounted) return;
+      setState(() {
+        _activeResponse = response;
+        _isLoadingCreature = false;
+        _creatureError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingCreature = false;
+        _creatureError = e.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final health = context.watch<HealthDataProvider>();
 
-    // Kick off loading once when the screen is first built.
+    // Kick off loading of health stats once when the screen is first built.
     if (!health.isLoading && !health.hasData) {
       Future.microtask(
         () => context.read<HealthDataProvider>().loadToday(),
@@ -94,6 +131,51 @@ class _HomeScreen extends StatelessWidget {
     final exerciseText = health.exerciseMinutesToday != null
         ? '${health.exerciseMinutesToday}'
         : '--';
+
+    final active = _activeResponse?.creature;
+    final hasActive = _activeResponse?.hasActive ?? false;
+
+    Widget creatureImage;
+    String creatureName = 'Your Creature';
+
+    if (_isLoadingCreature) {
+      creatureImage = const SizedBox(
+        height: 320,
+        child: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        ),
+      );
+    } else if (hasActive && active != null) {
+      creatureName = active.displayName.isNotEmpty
+          ? active.displayName
+          : active.nickname.isNotEmpty
+              ? active.nickname
+              : active.templateName;
+
+      if (active.imageUrl != null && active.imageUrl!.isNotEmpty) {
+        creatureImage = Image.network(
+          active.imageUrl!,
+          height: 320,
+          fit: BoxFit.contain,
+        );
+      } else {
+        creatureImage = Image.asset(
+          'assets/images/fuffles.png',
+          height: 320,
+        );
+      }
+    } else {
+      // No active creature found or error – fall back to default image.
+      creatureImage = Image.asset(
+        'assets/images/fuffles.png',
+        height: 320,
+      );
+      if (_creatureError != null) {
+        creatureName = 'Your Creature';
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -118,53 +200,54 @@ class _HomeScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              const SizedBox(height: 32),
-              // Creature image (larger)
-              Image.asset(
-                'assets/images/fuffles.png',
-                height: 320,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Whits T',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 32),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SizedBox(
-                  height: 150,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Todays Steps',
-                          subtitle: 'Goal: 7500',
-                          value: stepsText,
-                          icon: Icons.directions_walk,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _StatCard(
-                          title: 'Minutes of Exercise',
-                          subtitle: 'Goal: 20 minutes',
-                          value: exerciseText,
-                          icon: Icons.fitness_center,
-                        ),
-                      ),
-                    ],
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 32),
+                // Creature image (now driven by active creature)
+                creatureImage,
+                const SizedBox(height: 24),
+                Text(
+                  creatureName,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: 150,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Todays Steps',
+                            subtitle: 'Goal: 7500',
+                            value: stepsText,
+                            icon: Icons.directions_walk,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'Minutes of Exercise',
+                            subtitle: 'Goal: 20 minutes',
+                            value: exerciseText,
+                            icon: Icons.fitness_center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
