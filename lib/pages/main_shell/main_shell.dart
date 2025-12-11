@@ -323,7 +323,7 @@ class _HomeScreenState extends State<_HomeScreen> {
 
     if (_isLoadingCreature) {
       creatureImage = const SizedBox(
-        height: 320,
+        height: 220,
         child: Center(
           child: CircularProgressIndicator(
             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
@@ -340,30 +340,25 @@ class _HomeScreenState extends State<_HomeScreen> {
       if (active.imageUrl != null && active.imageUrl!.isNotEmpty) {
         creatureImage = Image.network(
           active.imageUrl!,
-          height: 320,
+          height: 220,
           fit: BoxFit.contain,
         );
       } else {
         creatureImage = Image.asset(
           'assets/images/fuffles.png',
-          height: 320,
+          height: 220,
         );
       }
     } else {
       // No active creature found or error – fall back to default image.
       creatureImage = Image.asset(
         'assets/images/fuffles.png',
-        height: 320,
+        height: 220,
       );
       if (_creatureError != null) {
         creatureName = 'Your Creature';
       }
     }
-
-    final bool isTodaySelected =
-        _selectedDate == _normalizeDate(DateTime.now());
-    final String stepsTitle =
-        isTodaySelected ? 'Today\'s Steps' : 'Steps';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -434,10 +429,10 @@ class _HomeScreenState extends State<_HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
                 // Creature image (now driven by active creature)
                 creatureImage,
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
                 Text(
                   creatureName,
                   style: const TextStyle(
@@ -446,17 +441,17 @@ class _HomeScreenState extends State<_HomeScreen> {
                     color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: SizedBox(
-                    height: 150,
+                    height: 90,
                     child: Row(
                       children: [
                         Expanded(
                           child: _StatCard(
-                            title: stepsTitle,
-                            subtitle: 'Goal: 7500',
+                            title: 'Steps',
+                            subtitle: '',
                             value: stepsText,
                             icon: Icons.directions_walk,
                           ),
@@ -464,8 +459,8 @@ class _HomeScreenState extends State<_HomeScreen> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: _StatCard(
-                            title: 'Minutes of Exercise',
-                            subtitle: 'Goal: 20 minutes',
+                            title: 'Min Exercise',
+                            subtitle: '',
                             value: exerciseText,
                             icon: Icons.fitness_center,
                           ),
@@ -484,18 +479,30 @@ class _HomeScreenState extends State<_HomeScreen> {
 
   Widget _buildGoalCard() {
     final today = _normalizeDate(DateTime.now());
-    final DailyGoalStatus? status = _dailyStatusCache[_selectedDate];
-    final bool hasProgram = status?.hasActiveProgram ?? false;
-    final bool met = status?.fitnessGoalMet ?? false;
+    final DailyGoalStatus? todayStatus = _dailyStatusCache[today];
+    final DailyGoalStatus? selectedStatus = _dailyStatusCache[_selectedDate];
+
+    // Program title is derived from the user's primary active program for
+    // "today", so that the card always reflects their main goal, even when
+    // viewing past days in the streak widget.
+    final String? programTitle =
+        todayStatus?.programTitle ?? selectedStatus?.programTitle;
+
+    final bool hasProgram = programTitle != null && programTitle.isNotEmpty;
+    final bool hasProgramOnSelectedDate =
+        selectedStatus?.hasActiveProgram ?? false;
+    final bool metOnSelectedDate = selectedStatus?.fitnessGoalMet ?? false;
 
     final String title = hasProgram
-        ? 'Goal: ${status!.programTitle ?? 'Active program'}'
+        ? 'Goal: $programTitle'
         : 'No active goal yet';
 
     final String subtitle;
     if (!hasProgram) {
       subtitle = 'Pick a goal to get started.';
-    } else if (met) {
+    } else if (!hasProgramOnSelectedDate) {
+      subtitle = 'No goal active on this date.';
+    } else if (metOnSelectedDate) {
       subtitle = _selectedDate == today
           ? 'You met your goal today!'
           : 'Goal met for this day.';
@@ -508,10 +515,12 @@ class _HomeScreenState extends State<_HomeScreen> {
     final Color borderColor;
     if (!hasProgram) {
       borderColor = Colors.white24;
-    } else if (met) {
+    } else if (metOnSelectedDate && hasProgramOnSelectedDate) {
       borderColor = const Color(0xFF0D9F6E);
-    } else {
+    } else if (hasProgramOnSelectedDate) {
       borderColor = const Color(0xFFE57373);
+    } else {
+      borderColor = Colors.white38;
     }
 
     return Container(
@@ -528,16 +537,22 @@ class _HomeScreenState extends State<_HomeScreen> {
             height: 40,
             width: 40,
             decoration: BoxDecoration(
-              color: hasProgram
-                  ? (met ? const Color(0xFF0D9F6E) : const Color(0xFFE57373))
-                  : const Color(0xFF8AC193),
+              color: !hasProgram
+                  ? const Color(0xFF8AC193)
+                  : (!hasProgramOnSelectedDate
+                      ? const Color(0xFF8AC193)
+                      : (metOnSelectedDate
+                          ? const Color(0xFF0D9F6E)
+                          : const Color(0xFFE57373))),
               shape: BoxShape.circle,
             ),
             child: Center(
               child: Text(
-                hasProgram
-                    ? (met ? '🔥' : '💩')
-                    : '🎯',
+                !hasProgram
+                    ? '🎯'
+                    : (!hasProgramOnSelectedDate
+                        ? '–'
+                        : (metOnSelectedDate ? '🔥' : '💩')),
                 style: const TextStyle(fontSize: 22),
               ),
             ),
@@ -659,14 +674,25 @@ class _HomeScreenState extends State<_HomeScreen> {
     final DailyGoalStatus? status = _dailyStatusCache[normalized];
     final bool hasProgram = status?.hasActiveProgram ?? false;
     final bool met = status?.fitnessGoalMet ?? false;
+    final DateTime today = _normalizeDate(DateTime.now());
+    final bool isFutureDate = normalized.isAfter(today);
 
     String emoji;
     if (status == null) {
       emoji = '…';
     } else if (!hasProgram) {
-      emoji = '💩';
+      // No active goal for this date – show a neutral placeholder instead
+      // of a "failed" poop emoji.
+      emoji = '–';
+    } else if (met) {
+      emoji = '🔥';
+    } else if (isFutureDate) {
+      // For future dates, do not show failure even if data exists; use
+      // a neutral marker instead.
+      emoji = '–';
     } else {
-      emoji = met ? '🔥' : '💩';
+      // Past or present day with an active goal that has not been met.
+      emoji = '💩';
     }
 
     final String dow = _weekdayAbbr(normalized.weekday);
@@ -753,7 +779,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF8AC193),
         borderRadius: BorderRadius.circular(12),
@@ -767,7 +793,7 @@ class _StatCard extends StatelessWidget {
               Icon(
                 icon,
                 color: Colors.white,
-                size: 20,
+                size: 18,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -775,7 +801,7 @@ class _StatCard extends StatelessWidget {
                   title,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -784,18 +810,10 @@ class _StatCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            subtitle,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
           ),

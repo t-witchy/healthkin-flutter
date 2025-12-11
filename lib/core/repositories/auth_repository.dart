@@ -57,6 +57,50 @@ class AuthResult {
   }
 }
 
+/// Result model for user registration against the Django backend.
+class RegisterResult {
+  final bool success;
+  final int? userId;
+  final String? email;
+  final String? message;
+
+  RegisterResult({
+    required this.success,
+    this.userId,
+    this.email,
+    this.message,
+  });
+
+  factory RegisterResult.fromJson(
+    Map<String, dynamic> json, {
+    int? statusCode,
+  }) {
+    final status = json['status'] as String?;
+    if (status == 'success') {
+      return RegisterResult(
+        success: true,
+        userId: json['user_id'] is int
+            ? json['user_id'] as int
+            : int.tryParse(json['user_id']?.toString() ?? ''),
+        email: json['email']?.toString(),
+        message: json['message'] as String?,
+      );
+    }
+
+    return RegisterResult(
+      success: false,
+      message: json['message'] as String?,
+    );
+  }
+
+  factory RegisterResult.genericFailure([String? message]) {
+    return RegisterResult(
+      success: false,
+      message: message ?? 'Something went wrong. Please try again.',
+    );
+  }
+}
+
 /// Repository responsible for talking to the Django auth endpoints.
 class AuthRepository {
   final String baseUrl;
@@ -127,6 +171,77 @@ class AuthRepository {
       debugPrint('AuthRepository.login: network error: $e');
       debugPrint('$st');
       return AuthResult.genericFailure();
+    }
+  }
+
+  /// Perform a registration against `/accounts/api/register/`.
+  ///
+  /// Sends JSON:
+  /// `{ "email": "...", "password": "...", "first_name": "...", "last_name": "...", "phone_number": "..." }`
+  Future<RegisterResult> register({
+    required String email,
+    required String password,
+    String? firstName,
+    String? lastName,
+    String? phoneNumber,
+  }) async {
+    final uri = Uri.parse('$baseUrl/accounts/api/register/');
+
+    try {
+      final body = <String, dynamic>{
+        'email': email.trim(),
+        'password': password,
+        if (firstName != null && firstName.trim().isNotEmpty)
+          'first_name': firstName.trim(),
+        if (lastName != null && lastName.trim().isNotEmpty)
+          'last_name': lastName.trim(),
+        if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
+          'phone_number': phoneNumber.trim(),
+      };
+
+      final response = await _client.post(
+        uri,
+        headers: const {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+
+      Map<String, dynamic> bodyJson;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          bodyJson = decoded;
+        } else {
+          debugPrint(
+            'AuthRepository.register: unexpected response body type: '
+            '${decoded.runtimeType}',
+          );
+          return RegisterResult.genericFailure();
+        }
+      } catch (e, st) {
+        debugPrint('AuthRepository.register: failed to decode JSON: $e');
+        debugPrint('$st');
+        return RegisterResult.genericFailure();
+      }
+
+      if (response.statusCode == 201 || response.statusCode == 400) {
+        return RegisterResult.fromJson(
+          bodyJson,
+          statusCode: response.statusCode,
+        );
+      }
+
+      debugPrint(
+        'AuthRepository.register: unexpected status code '
+        '${response.statusCode} body=$bodyJson',
+      );
+      return RegisterResult.genericFailure();
+    } catch (e, st) {
+      debugPrint('AuthRepository.register: network error: $e');
+      debugPrint('$st');
+      return RegisterResult.genericFailure();
     }
   }
 }
