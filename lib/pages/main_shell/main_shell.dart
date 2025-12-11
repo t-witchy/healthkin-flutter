@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/core/api/goals_status_api.dart';
 import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
 import 'package:healthkin_flutter/core/services/fitness_sync_service.dart';
 import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
@@ -96,6 +97,7 @@ class _HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<_HomeScreen> {
   final CreatureApi _creatureApi = CreatureApi();
   final FitnessSyncService _fitnessSyncService = FitnessSyncService();
+  final GoalsStatusService _goalsStatusService = GoalsStatusService();
 
   ActiveCreatureResponse? _activeResponse;
   bool _isLoadingCreature = true;
@@ -103,10 +105,47 @@ class _HomeScreenState extends State<_HomeScreen> {
   bool _isSyncing = false;
   String? _syncErrorMessage;
 
+  /// The currently selected calendar date (normalized to have no time).
+  DateTime _selectedDate = _normalizeDate(DateTime.now());
+
+  /// Cached goal status per day for the visible weeks.
+  final Map<DateTime, DailyGoalStatus> _dailyStatusCache = {};
+  bool _isLoadingWeek = false;
+  String? _weekErrorMessage;
+
   @override
   void initState() {
     super.initState();
+    _selectedDate = _normalizeDate(DateTime.now());
     _loadActiveCreature();
+    _syncHealthDataOnStartup();
+    _loadHealthForSelectedDate();
+    _loadWeekFor(_selectedDate);
+  }
+
+  /// Trigger a one-time fitness data sync when the home screen is first
+  /// created. This attempts to push the latest health stats to the backend
+  /// without showing any user-facing feedback; manual sync still uses the
+  /// visible button and SnackBars.
+  Future<void> _syncHealthDataOnStartup() async {
+    if (_isSyncing) return;
+
+    setState(() {
+      _isSyncing = true;
+    });
+
+    try {
+      await _fitnessSyncService.syncNow();
+    } catch (_) {
+      // Errors are already logged inside FitnessSyncService; no UI feedback
+      // needed on startup.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
   }
 
   Future<void> _syncHealthData() async {
@@ -143,6 +182,111 @@ class _HomeScreenState extends State<_HomeScreen> {
     }
   }
 
+  /// Normalize a [DateTime] to a date-only value in local time.
+  static DateTime _normalizeDate(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  /// Compute the Sunday-based start of week for the given [date].
+  DateTime _startOfWeek(DateTime date) {
+    final normalized = _normalizeDate(date);
+    // DateTime.weekday: Monday = 1, ..., Sunday = 7.
+    final int daysToSubtract = normalized.weekday % 7;
+    return normalized.subtract(Duration(days: daysToSubtract));
+  }
+
+  /// Returns the 7 dates representing the week containing [anchorDate],
+  /// starting on Sunday.
+  List<DateTime> _weekDatesFor(DateTime anchorDate) {
+    final start = _startOfWeek(anchorDate);
+    return List<DateTime>.generate(
+      7,
+      (index) => start.add(Duration(days: index)),
+    );
+  }
+
+  void _loadHealthForSelectedDate() {
+    final healthProvider = context.read<HealthDataProvider>();
+    healthProvider.loadForDate(_selectedDate);
+  }
+
+  Future<void> _loadWeekFor(DateTime anchorDate) async {
+    if (_isLoadingWeek) return;
+
+    setState(() {
+      _isLoadingWeek = true;
+      _weekErrorMessage = null;
+    });
+
+    final dates = _weekDatesFor(anchorDate);
+    final Map<DateTime, DailyGoalStatus> newEntries = {};
+
+    try {
+      for (final date in dates) {
+        final key = _normalizeDate(date);
+        if (_dailyStatusCache.containsKey(key)) continue;
+
+        final statuses = await _goalsStatusService.fetchProgramGoalStatus(
+          date: key,
+          primaryOnly: true,
+        );
+        UserProgramGoalStatus? primary;
+        if (statuses.isNotEmpty) {
+          primary = statuses.first;
+        }
+
+        final daily = DailyGoalStatus(
+          date: key,
+          hasActiveProgram: primary != null,
+          fitnessGoalMet: primary?.fitnessGoalMet ?? false,
+          programTitle: primary?.programTitle,
+        );
+
+        newEntries[key] = daily;
+      }
+
+      if (mounted && newEntries.isNotEmpty) {
+        setState(() {
+          _dailyStatusCache.addAll(newEntries);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _weekErrorMessage = e.toString();
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingWeek = false;
+        });
+      }
+    }
+  }
+
+  void _goToPreviousDay() {
+    final newDate = _selectedDate.subtract(const Duration(days: 1));
+    _updateSelectedDate(newDate);
+  }
+
+  void _goToNextDay() {
+    final today = _normalizeDate(DateTime.now());
+    if (!_selectedDate.isBefore(today)) return;
+
+    final newDate = _selectedDate.add(const Duration(days: 1));
+    _updateSelectedDate(newDate);
+  }
+
+  void _updateSelectedDate(DateTime newDate) {
+    final normalized = _normalizeDate(newDate);
+    setState(() {
+      _selectedDate = normalized;
+    });
+    _loadHealthForSelectedDate();
+    _loadWeekFor(normalized);
+  }
+
   Future<void> _loadActiveCreature() async {
     try {
       final response = await _creatureApi.getActiveCreature();
@@ -164,13 +308,6 @@ class _HomeScreenState extends State<_HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final health = context.watch<HealthDataProvider>();
-
-    // Kick off loading of health stats once when the screen is first built.
-    if (!health.isLoading && !health.hasData) {
-      Future.microtask(
-        () => context.read<HealthDataProvider>().loadToday(),
-      );
-    }
 
     final stepsText =
         health.stepsToday != null ? '${health.stepsToday}' : '--';
@@ -222,6 +359,11 @@ class _HomeScreenState extends State<_HomeScreen> {
         creatureName = 'Your Creature';
       }
     }
+
+    final bool isTodaySelected =
+        _selectedDate == _normalizeDate(DateTime.now());
+    final String stepsTitle =
+        isTodaySelected ? 'Today\'s Steps' : 'Steps';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -275,6 +417,16 @@ class _HomeScreenState extends State<_HomeScreen> {
             ),
           ),
         const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildGoalCard(),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildWeekStrip(),
+        ),
+        const SizedBox(height: 8),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.only(bottom: 16),
@@ -282,7 +434,7 @@ class _HomeScreenState extends State<_HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
                 // Creature image (now driven by active creature)
                 creatureImage,
                 const SizedBox(height: 24),
@@ -303,7 +455,7 @@ class _HomeScreenState extends State<_HomeScreen> {
                       children: [
                         Expanded(
                           child: _StatCard(
-                            title: 'Todays Steps',
+                            title: stepsTitle,
                             subtitle: 'Goal: 7500',
                             value: stepsText,
                             icon: Icons.directions_walk,
@@ -328,6 +480,260 @@ class _HomeScreenState extends State<_HomeScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildGoalCard() {
+    final today = _normalizeDate(DateTime.now());
+    final DailyGoalStatus? status = _dailyStatusCache[_selectedDate];
+    final bool hasProgram = status?.hasActiveProgram ?? false;
+    final bool met = status?.fitnessGoalMet ?? false;
+
+    final String title = hasProgram
+        ? 'Goal: ${status!.programTitle ?? 'Active program'}'
+        : 'No active goal yet';
+
+    final String subtitle;
+    if (!hasProgram) {
+      subtitle = 'Pick a goal to get started.';
+    } else if (met) {
+      subtitle = _selectedDate == today
+          ? 'You met your goal today!'
+          : 'Goal met for this day.';
+    } else {
+      subtitle = _selectedDate == today
+          ? 'Not yet met today.'
+          : 'Goal not met on this day.';
+    }
+
+    final Color borderColor;
+    if (!hasProgram) {
+      borderColor = Colors.white24;
+    } else if (met) {
+      borderColor = const Color(0xFF0D9F6E);
+    } else {
+      borderColor = const Color(0xFFE57373);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3E6D8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: hasProgram ? 1.5 : 1),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            height: 40,
+            width: 40,
+            decoration: BoxDecoration(
+              color: hasProgram
+                  ? (met ? const Color(0xFF0D9F6E) : const Color(0xFFE57373))
+                  : const Color(0xFF8AC193),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                hasProgram
+                    ? (met ? '🔥' : '💩')
+                    : '🎯',
+                style: const TextStyle(fontSize: 22),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeekStrip() {
+    final weekDates = _weekDatesFor(_selectedDate);
+    final today = _normalizeDate(DateTime.now());
+    final bool canGoForward = _selectedDate.isBefore(today);
+
+    String dateLabel;
+    if (_selectedDate == today) {
+      dateLabel = 'Today';
+    } else {
+      final weekdayAbbr = _weekdayAbbr(_selectedDate.weekday);
+      dateLabel = '$weekdayAbbr ${_selectedDate.day}';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left, color: Colors.white),
+              onPressed: _goToPreviousDay,
+            ),
+            Expanded(
+              child: Center(
+                child: Text(
+                  dateLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right, color: Colors.white),
+              onPressed: canGoForward ? _goToNextDay : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 72,
+          child: Row(
+            children: [
+              for (final date in weekDates)
+                Expanded(
+                  child: _buildDayCell(date),
+                ),
+            ],
+          ),
+        ),
+        if (_isLoadingWeek)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              height: 12,
+              width: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+          ),
+        if (_weekErrorMessage != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              _weekErrorMessage!,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDayCell(DateTime date) {
+    final normalized = _normalizeDate(date);
+    final isSelected = normalized == _selectedDate;
+    final DailyGoalStatus? status = _dailyStatusCache[normalized];
+    final bool hasProgram = status?.hasActiveProgram ?? false;
+    final bool met = status?.fitnessGoalMet ?? false;
+
+    String emoji;
+    if (status == null) {
+      emoji = '…';
+    } else if (!hasProgram) {
+      emoji = '💩';
+    } else {
+      emoji = met ? '🔥' : '💩';
+    }
+
+    final String dow = _weekdayAbbr(normalized.weekday);
+    final String dayNum = '${normalized.day}';
+
+    final Color bgColor = isSelected ? Colors.black87 : Colors.white24;
+    final Color textColor = isSelected ? Colors.white : Colors.white;
+
+    return GestureDetector(
+      onTap: () => _updateSelectedDate(normalized),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              dow,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              dayNum,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              emoji,
+              style: const TextStyle(fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _weekdayAbbr(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'Mon';
+      case DateTime.tuesday:
+        return 'Tue';
+      case DateTime.wednesday:
+        return 'Wed';
+      case DateTime.thursday:
+        return 'Thu';
+      case DateTime.friday:
+        return 'Fri';
+      case DateTime.saturday:
+        return 'Sat';
+      case DateTime.sunday:
+        return 'Sun';
+      default:
+        return '';
+    }
   }
 }
 
@@ -397,6 +803,21 @@ class _StatCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Simple UI model representing whether a goal was active and met on a day.
+class DailyGoalStatus {
+  final DateTime date;
+  final bool hasActiveProgram;
+  final bool fitnessGoalMet;
+  final String? programTitle;
+
+  DailyGoalStatus({
+    required this.date,
+    required this.hasActiveProgram,
+    required this.fitnessGoalMet,
+    this.programTitle,
+  });
 }
 
 class _NavIcon extends StatelessWidget {

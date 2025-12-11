@@ -9,12 +9,26 @@ class HealthDataProvider extends ChangeNotifier {
   bool isLoading = false;
   String? errorMessage;
 
+  /// The date for which [stepsToday] and [exerciseMinutesToday] are loaded.
+  /// This is normalized to a date-only value (no time) when set.
+  DateTime? loadedDate;
+
   int? stepsToday;
   int? exerciseMinutesToday;
 
   bool get hasData => stepsToday != null || exerciseMinutesToday != null;
 
+  /// Convenience helper that loads data for [DateTime.now()].
   Future<void> loadToday() async {
+    await loadForDate(DateTime.now());
+  }
+
+  /// Load steps and exercise minutes for the given [date].
+  ///
+  /// If [date] is today, the range is from start-of-day until "now".
+  /// For past dates, the range is the full calendar day in the user's
+  /// local time.
+  Future<void> loadForDate(DateTime date) async {
     if (isLoading) return;
 
     isLoading = true;
@@ -22,7 +36,17 @@ class HealthDataProvider extends ChangeNotifier {
     notifyListeners();
 
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
+    final normalized = DateTime(date.year, date.month, date.day);
+    final bool isToday = normalized.year == now.year &&
+        normalized.month == now.month &&
+        normalized.day == now.day;
+
+    final startOfDay = normalized;
+    final endOfRange = isToday
+        ? now
+        : startOfDay.add(const Duration(days: 1)).subtract(
+              const Duration(milliseconds: 1),
+            );
 
     final types = <HealthDataType>[
       HealthDataType.STEPS,
@@ -48,15 +72,15 @@ class HealthDataProvider extends ChangeNotifier {
         return;
       }
 
-      // Total steps for today
+      // Total steps for the selected day.
       final int? steps =
-          await _health.getTotalStepsInInterval(startOfDay, now);
+          await _health.getTotalStepsInInterval(startOfDay, endOfRange);
 
-      // Exercise time (in minutes) for today
+      // Exercise time (in minutes) for the selected day.
       final data = await _health.getHealthDataFromTypes(
         types: [HealthDataType.EXERCISE_TIME],
         startTime: startOfDay,
-        endTime: now,
+        endTime: endOfRange,
       );
 
       int totalMinutes = 0;
@@ -78,6 +102,7 @@ class HealthDataProvider extends ChangeNotifier {
 
       stepsToday = steps ?? 0;
       exerciseMinutesToday = totalMinutes;
+      loadedDate = normalized;
       isLoading = false;
       errorMessage = null;
       notifyListeners();
