@@ -65,6 +65,36 @@ class FriendsApi {
         .toList();
   }
 
+  /// Fetch all friends for a given user id, including their creature info.
+  ///
+  /// This expects a response compatible with [FriendActiveCreature].
+  Future<List<FriendActiveCreature>> fetchFriendsForUser(int userId) async {
+    final uri = Uri.parse('$baseUrl/api/friends/$userId/');
+    final response = await _client.get(uri, headers: _headers());
+
+    if (response.statusCode != 200) {
+      throw _buildError(response);
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is List) {
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(FriendActiveCreature.fromJson)
+          .toList();
+    }
+
+    if (decoded is Map<String, dynamic> && decoded['friends'] is List) {
+      final friendsJson = decoded['friends'] as List;
+      return friendsJson
+          .whereType<Map<String, dynamic>>()
+          .map(FriendActiveCreature.fromJson)
+          .toList();
+    }
+
+    return const [];
+  }
+
   /// Send a friend invitation to the given email address.
   Future<void> sendFriendInvite(String email) async {
     final uri = Uri.parse('$baseUrl/api/friends/invitations/');
