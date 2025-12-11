@@ -42,11 +42,11 @@ class ActiveCreature {
 
   factory ActiveCreature.fromJson(Map<String, dynamic> json) {
     return ActiveCreature(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       nickname: json['nickname'] as String? ?? '',
       displayName: json['display_name'] as String? ?? '',
       imageUrl: json['image_url'] as String?,
-      templateId: json['template_id'] as int,
+      templateId: (json['template_id'] as int?) ?? 0,
       templateName: json['template_name'] as String? ?? '',
     );
   }

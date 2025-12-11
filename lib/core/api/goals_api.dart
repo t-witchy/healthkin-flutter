@@ -23,7 +23,7 @@ class GoalFriend {
 
   factory GoalFriend.fromJson(Map<String, dynamic> json) {
     return GoalFriend(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       displayName: json['display_name'] as String? ?? '',
       userIdentifier: json['user_identifier']?.toString() ?? '',
       activeCreatureNickname: json['active_creature_nickname'] as String?,
@@ -97,7 +97,7 @@ class GoalComponent {
 
   factory GoalComponent.fromJson(Map<String, dynamic> json) {
     return GoalComponent(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       title: json['title'] as String? ?? '',
       componentType: json['component_type'] as String? ?? '',
       durationDays: json['duration_days'] as int? ?? 0,
@@ -142,7 +142,7 @@ class GoalProgram {
     }
 
     return GoalProgram(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       title: json['title'] as String? ?? '',
       description: json['description'] as String?,
       durationDays: json['duration_days'] as int? ?? 0,
@@ -188,7 +188,7 @@ class UserGoal {
 
   factory UserGoal.fromJson(Map<String, dynamic> json) {
     return UserGoal(
-      userProgramId: json['user_program_id'] as int,
+      userProgramId: (json['user_program_id'] as int?) ?? 0,
       program: GoalProgram.fromJson(
         (json['program'] as Map).cast<String, dynamic>(),
       ),
@@ -235,7 +235,7 @@ class GoalChallenge {
 
   factory GoalChallenge.fromJson(Map<String, dynamic> json) {
     return GoalChallenge(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       program: GoalProgram.fromJson(
         (json['program'] as Map).cast<String, dynamic>(),
       ),

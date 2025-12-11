@@ -20,7 +20,9 @@ class FriendActiveCreature {
 
   factory FriendActiveCreature.fromJson(Map<String, dynamic> json) {
     return FriendActiveCreature(
-      friendId: json['friend_id'] as int,
+      // Some responses may omit or null out `friend_id`; treat those as
+      // invalid entries that will be filtered out by the callers.
+      friendId: (json['friend_id'] as int?) ?? -1,
       friendName: json['friend_name'] as String,
       creatureNickname: json['creature_nickname'] as String,
       creatureImageUrl: json['creature_image_url'] as String,
@@ -62,6 +64,7 @@ class FriendsApi {
     return friendsJson
         .whereType<Map<String, dynamic>>()
         .map(FriendActiveCreature.fromJson)
+        .where((f) => f.friendId > 0)
         .toList();
   }
 
@@ -81,6 +84,7 @@ class FriendsApi {
       return decoded
           .whereType<Map<String, dynamic>>()
           .map(FriendActiveCreature.fromJson)
+          .where((f) => f.friendId > 0)
           .toList();
     }
 
@@ -89,6 +93,7 @@ class FriendsApi {
       return friendsJson
           .whereType<Map<String, dynamic>>()
           .map(FriendActiveCreature.fromJson)
+          .where((f) => f.friendId > 0)
           .toList();
     }
 

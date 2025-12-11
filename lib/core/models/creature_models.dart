@@ -20,7 +20,7 @@ class CreatureTemplate {
 
   factory CreatureTemplate.fromJson(Map<String, dynamic> json) {
     return CreatureTemplate(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       name: json['name'] as String? ?? '',
       description: json['description'] as String?,
       rarity: json['rarity'] is int
@@ -60,7 +60,7 @@ class UserCreatureInstance {
 
   factory UserCreatureInstance.fromJson(Map<String, dynamic> json) {
     return UserCreatureInstance(
-      id: json['id'] as int,
+      id: (json['id'] as int?) ?? 0,
       nickname: json['nickname'] as String? ?? '',
       displayName: json['display_name'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? false,

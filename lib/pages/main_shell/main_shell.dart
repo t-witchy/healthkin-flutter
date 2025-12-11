@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
+import 'package:healthkin_flutter/core/services/fitness_sync_service.dart';
 import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
 import 'package:healthkin_flutter/pages/friends_garden/friends_garden_screen.dart';
 import 'package:healthkin_flutter/pages/goals/goals_screen.dart';
-import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -94,15 +95,52 @@ class _HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<_HomeScreen> {
   final CreatureApi _creatureApi = CreatureApi();
+  final FitnessSyncService _fitnessSyncService = FitnessSyncService();
 
   ActiveCreatureResponse? _activeResponse;
   bool _isLoadingCreature = true;
   String? _creatureError;
+  bool _isSyncing = false;
+  String? _syncErrorMessage;
 
   @override
   void initState() {
     super.initState();
     _loadActiveCreature();
+  }
+
+  Future<void> _syncHealthData() async {
+    if (_isSyncing) return;
+
+    setState(() {
+      _isSyncing = true;
+      _syncErrorMessage = null;
+    });
+
+    try {
+      await _fitnessSyncService.syncNow();
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Health data synced')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _syncErrorMessage = e.toString();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not sync health data right now.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadActiveCreature() async {
@@ -203,9 +241,39 @@ class _HomeScreenState extends State<_HomeScreen> {
                   showMainMenuOverlay(context);
                 },
               ),
+              const Spacer(),
+              if (_isSyncing)
+                const SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(
+                    Icons.sync,
+                    color: Colors.white,
+                  ),
+                  tooltip: 'Sync health data',
+                  onPressed: _syncHealthData,
+                ),
             ],
           ),
         ),
+        if (_syncErrorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              _syncErrorMessage!,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: SingleChildScrollView(
