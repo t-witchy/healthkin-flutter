@@ -1,29 +1,31 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
-import 'package:healthkin_flutter/core/api/fitness_api.dart';
-
-/// Key used in [SharedPreferences] to store the timestamp of the last
-/// successful fitness sync in UTC (ISO 8601 string).
-const String _kLastFitnessSyncKey = 'fitness_last_sync_utc';
+import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/core/repositories/auth_session.dart';
 
 /// Service responsible for reading device health data and syncing it to
-/// the backend via [FitnessApi].
+/// the backend via `/api/fitness/`.
 ///
 /// This is written so it can be reused both from foreground UI (e.g. a
 /// "Sync now" button) and from a background task (Workmanager callback).
 class FitnessSyncService {
   final Health _health;
-  final FitnessApi _api;
+  final http.Client _client;
+
+  /// In-memory "last synced at" timestamp (UTC). This avoids introducing
+  /// additional dependencies such as `shared_preferences`. It survives for
+  /// the lifetime of the process but will reset when the app restarts.
+  static DateTime? _lastSyncUtc;
 
   FitnessSyncService({
     Health? health,
-    FitnessApi? api,
   })  : _health = health ?? Health(),
-        _api = api ?? FitnessApi();
+        _client = http.Client();
 
   /// Perform a sync of health data since the last successful run.
   ///
@@ -34,29 +36,17 @@ class FitnessSyncService {
   /// - Request health permissions if needed.
   /// - Aggregate total steps and exercise minutes for the window.
   /// - Build a [FitnessActivityRecord] for the whole window and POST it.
-  /// - On success, update the stored "last sync" timestamp to [end] (UTC).
+  /// - On success, update the in-memory "last sync" timestamp to [end] (UTC).
   ///
   /// If auth tokens are missing, health permissions are not granted,
   /// or the user has no new data, this method returns without throwing.
   Future<void> syncNow() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-
       final nowLocal = DateTime.now();
       final nowUtc = nowLocal.toUtc();
 
-      final lastSyncIso = prefs.getString(_kLastFitnessSyncKey);
-      DateTime? lastSyncUtc;
-      if (lastSyncIso != null && lastSyncIso.isNotEmpty) {
-        try {
-          lastSyncUtc = DateTime.parse(lastSyncIso).toUtc();
-        } catch (_) {
-          lastSyncUtc = null;
-        }
-      }
-
       // Use last sync if available, otherwise start of today in local time.
-      final startLocal = (lastSyncUtc?.toLocal()) ??
+      final startLocal = (_lastSyncUtc?.toLocal()) ??
           DateTime(nowLocal.year, nowLocal.month, nowLocal.day);
 
       // If the stored last sync is somehow in the future, bail out.
@@ -131,10 +121,7 @@ class FitnessSyncService {
           'FitnessSyncService: no steps or exercise minutes in window; '
           'marking as synced without POST.',
         );
-        await prefs.setString(
-          _kLastFitnessSyncKey,
-          nowUtc.toIso8601String(),
-        );
+        _lastSyncUtc = nowUtc;
         return;
       }
 
@@ -154,22 +141,47 @@ class FitnessSyncService {
       // granular activity data.
       const String activityType = 'walking';
 
-      final record = FitnessActivityRecord(
-        startTimeUtc: startLocal.toUtc(),
-        endTimeUtc: nowUtc,
-        localDate: nowLocal,
-        stepCount: stepCount,
-        exerciseMinutes: exerciseMinutes,
-        activityType: activityType,
-        source: source,
+      // Build request payload expected by `/api/fitness/`.
+      final payload = <String, dynamic>{
+        'start_time': startLocal.toUtc().toIso8601String(),
+        'end_time': nowUtc.toIso8601String(),
+        'date': nowLocal.toIso8601String().split('T').first,
+        'step_count': stepCount,
+        'exercise_minutes': exerciseMinutes,
+        'activity_type': activityType,
+        'source': source,
+      };
+
+      final token = AuthSession.token ?? '';
+      if (token.isEmpty) {
+        debugPrint(
+          'FitnessSyncService: no auth token available; skipping sync.',
+        );
+        return;
+      }
+
+      final uri = Uri.parse('$baseUrl/api/fitness/');
+      final response = await _client.post(
+        uri,
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(payload),
       );
 
-      await _api.postActivity(record);
+      if (response.statusCode != 200 &&
+          response.statusCode != 201 &&
+          response.statusCode != 204) {
+        debugPrint(
+          'FitnessSyncService: POST /api/fitness/ failed with '
+          'status=${response.statusCode} body=${response.body}',
+        );
+        return;
+      }
 
-      await prefs.setString(
-        _kLastFitnessSyncKey,
-        nowUtc.toIso8601String(),
-      );
+      _lastSyncUtc = nowUtc;
 
       debugPrint(
         'FitnessSyncService: synced steps=$stepCount '
