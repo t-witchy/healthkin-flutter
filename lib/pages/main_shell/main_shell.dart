@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
 import 'package:healthkin_flutter/pages/friends_garden/friends_garden_screen.dart';
+import 'package:healthkin_flutter/pages/goals/goals_screen.dart';
 import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
 
 class MainShell extends StatefulWidget {
@@ -20,6 +22,7 @@ class _MainShellState extends State<MainShell> {
     final pages = <Widget>[
       const _HomeScreen(),
       const _ProgressScreen(),
+      const GoalsScreen(),
       const FriendsGardenScreen(),
     ];
 
@@ -60,6 +63,11 @@ class _MainShellState extends State<MainShell> {
               isActive: true,
             ),
             label: 'Progress',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.emoji_events_outlined),
+            activeIcon: Icon(Icons.emoji_events),
+            label: 'Goals',
           ),
           BottomNavigationBarItem(
             icon: _NavIcon(
@@ -192,7 +200,7 @@ class _HomeScreenState extends State<_HomeScreen> {
                   size: 32,
                 ),
                 onPressed: () {
-                  // TODO: open drawer/settings when implemented.
+                  showMainMenuOverlay(context);
                 },
               ),
             ],

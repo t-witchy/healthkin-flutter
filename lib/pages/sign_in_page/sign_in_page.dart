@@ -112,7 +112,8 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -147,7 +148,10 @@ class _LoginPageState extends State<LoginPage> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Email',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
@@ -175,7 +179,10 @@ class _LoginPageState extends State<LoginPage> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Password',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
@@ -217,7 +224,8 @@ class _LoginPageState extends State<LoginPage> {
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                                  AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
                             ),
                           )
                         : const Text(
@@ -245,10 +253,12 @@ class _LoginPageState extends State<LoginPage> {
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        tapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
                       ),
                       onPressed: () {
-                        Navigator.of(context).pushReplacementNamed('/register');
+                        Navigator.of(context)
+                            .pushReplacementNamed('/register');
                       },
                       child: const Text(
                         'Register',

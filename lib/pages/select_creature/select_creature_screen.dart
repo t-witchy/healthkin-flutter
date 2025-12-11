@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
 import 'package:healthkin_flutter/core/models/creature_models.dart';
+import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
 
 class SelectCreatureScreen extends StatefulWidget {
   const SelectCreatureScreen({super.key});
@@ -162,29 +163,48 @@ class _SelectCreatureScreenState extends State<SelectCreatureScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFA9CF8E),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-              const Text(
-                'Select Your Avatar',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
+        child: Stack(
+          children: [
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Select Your Avatar',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Expanded(
+                    child: _buildContent(),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildGoButton(),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              child: IconButton(
+                icon: const Icon(
+                  Icons.menu,
                   color: Colors.white,
+                  size: 32,
                 ),
+                onPressed: () {
+                  showMainMenuOverlay(context);
+                },
               ),
-              const SizedBox(height: 24),
-              Expanded(
-                child: _buildContent(),
-              ),
-              const SizedBox(height: 16),
-              _buildGoButton(),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

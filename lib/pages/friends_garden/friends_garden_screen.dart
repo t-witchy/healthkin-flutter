@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
 import 'package:healthkin_flutter/core/api/friends_api.dart';
+import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
 
 class FriendsGardenScreen extends StatefulWidget {
   const FriendsGardenScreen({super.key});
@@ -254,6 +255,20 @@ class _FriendsGardenScreenState extends State<FriendsGardenScreen> {
       body: SafeArea(
         child: Stack(
           children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              child: IconButton(
+                icon: const Icon(
+                  Icons.menu,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: () {
+                  showMainMenuOverlay(context);
+                },
+              ),
+            ),
             Positioned.fill(
               child: Image.asset(
                 'assets/images/garden.png',

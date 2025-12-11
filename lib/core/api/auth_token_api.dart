@@ -49,13 +49,52 @@ class AuthTokenApi {
     }
 
     final dynamic access = decoded['access'] ?? decoded['token'];
-    final token = access?.toString();
+    final dynamic refresh = decoded['refresh'];
 
-    if (token == null || token.isEmpty) {
+    final accessToken = access?.toString();
+    final refreshToken = refresh?.toString();
+
+    if (accessToken == null || accessToken.isEmpty) {
       throw Exception('Token not found in response.');
     }
 
-    AuthSession.setToken(token);
+    AuthSession.setTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+  }
+
+  /// Log the user out by blacklisting the refresh token.
+  Future<void> logout() async {
+    final refreshToken = AuthSession.refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      // Nothing to revoke on the server; just clear locally.
+      AuthSession.clear();
+      return;
+    }
+
+    final uri = Uri.parse('$baseUrl/accounts/api/logout/');
+    final accessToken = AuthSession.token ?? '';
+
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode(<String, dynamic>{
+        'refresh_token': refreshToken,
+      }),
+    );
+
+    if (response.statusCode != 200 &&
+        response.statusCode != 201 &&
+        response.statusCode != 205) {
+      throw _buildError(response);
+    }
+
+    AuthSession.clear();
   }
 
   Exception _buildError(http.Response response) {
