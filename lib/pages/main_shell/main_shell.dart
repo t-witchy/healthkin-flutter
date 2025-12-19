@@ -235,10 +235,34 @@ class _HomeScreenState extends State<_HomeScreen> {
           primary = statuses.first;
         }
 
+        // Determine whether the day's fitness goal should be considered "met"
+        // for the purposes of the emoji strip.
+        //
+        // The backend exposes an aggregate `fitness_goal_met` flag on
+        // [UserProgramGoalStatus], but programs can contain multiple fitness
+        // components (e.g. steps + exercise minutes). In practice users expect
+        // the flame emoji to appear as soon as their **steps** goal for the
+        // day is met, even if other components (like exercise minutes) are
+        // still in progress.
+        //
+        // To align with that expectation, we treat the day as "met" if EITHER:
+        //   - the backend's aggregate `fitness_goal_met` is true, OR
+        //   - any fitness component of type `steps` is marked as met.
+        bool fitnessMet = primary?.fitnessGoalMet ?? false;
+        if (primary != null) {
+          final bool anyStepsComponentMet = primary.fitnessGoals.any(
+            (component) =>
+                component.goalType == 'steps' && component.met == true,
+          );
+          if (anyStepsComponentMet) {
+            fitnessMet = true;
+          }
+        }
+
         final daily = DailyGoalStatus(
           date: key,
           hasActiveProgram: primary != null,
-          fitnessGoalMet: primary?.fitnessGoalMet ?? false,
+          fitnessGoalMet: fitnessMet,
           programTitle: primary?.programTitle,
         );
 
