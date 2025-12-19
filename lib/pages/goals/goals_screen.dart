@@ -23,6 +23,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   bool _isLoading = true;
   bool _isEnrolling = false;
+  bool _isStopping = false;
   bool _isSyncing = false;
   String? _errorMessage;
   String? _syncErrorMessage;
@@ -126,7 +127,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   Future<void> _enrollInGoal(GoalProgram program) async {
-    if (_isEnrolling) return;
+    if (_isEnrolling || _isStopping) return;
     setState(() {
       _isEnrolling = true;
     });
@@ -157,10 +158,61 @@ class _GoalsScreenState extends State<GoalsScreen> {
     }
   }
 
+  Future<void> _stopGoal(UserGoal goal) async {
+    if (_isStopping || _isEnrolling) return;
+    setState(() {
+      _isStopping = true;
+    });
+
+    try {
+      await _api.stopGoal(goal.userProgramId);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Goal stopped')),
+      );
+
+      await _loadGoals();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+      setState(() {
+        _isStopping = false;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStopping = false;
+        });
+      }
+    }
+  }
+
   Future<void> _showChallengeModal(UserGoal mainGoal) async {
-    // Preload friends (prefer full friends list by user id) and pending challenges.
+    // Safety: ensure the goal is still active before allowing invites/challenges.
+    final isStillActive = _activeGoals.any(
+      (g) => g.userProgramId == mainGoal.userProgramId,
+    );
+    if (!isStillActive) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'You need to start this goal before inviting a friend.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Preload friends (prefer full friends list by user id), pending
+    // challenges, and pending email invitations for this program.
     List<FriendActiveCreature> friends = const [];
     List<GoalChallenge> pending = const [];
+    List<String> pendingEmails = const [];
     String? initialError;
 
     try {
@@ -173,6 +225,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
         friends = await _friendsApi.fetchFriendsActiveCreatures();
       }
       pending = await _api.fetchPendingChallenges();
+      pendingEmails = await _api.fetchPendingChallengeEmails(
+        programId: mainGoal.program.id,
+      );
     } catch (e) {
       initialError = e.toString();
     }
@@ -313,6 +368,37 @@ class _GoalsScreenState extends State<GoalsScreen> {
                                         }
                                       },
                                 child: const Text('Challenge'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Pending Email Invites',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (pendingEmails.isEmpty)
+                      const Text(
+                        'No pending email invitations for this goal.',
+                        style: TextStyle(fontSize: 13),
+                      )
+                    else
+                      Column(
+                        children: [
+                          for (final email in pendingEmails)
+                            ListTile(
+                              leading: const Icon(
+                                Icons.email_outlined,
+                                color: Color(0xFF2F9467),
+                              ),
+                              title: Text(email),
+                              subtitle: const Text(
+                                'Invitation sent',
+                                style: TextStyle(fontSize: 12),
                               ),
                             ),
                         ],
@@ -637,7 +723,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
         const SizedBox(height: 8),
         _ActiveGoalCard(
           userGoal: mainGoal,
-          onChallengeFriend: () => _showChallengeModal(mainGoal),
+          onStop: () => _stopGoal(mainGoal),
+          onInviteFriend: (!mainGoal.isWithFriend && mainGoal.friend == null)
+              ? () => _showChallengeModal(mainGoal)
+              : null,
+          isMutating: _isEnrolling || _isStopping,
         ),
         if (_activeGoals.length > 1) ...[
           const SizedBox(height: 12),
@@ -653,7 +743,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
           for (final g in _activeGoals.skip(1))
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: _SmallGoalCard(userGoal: g),
+              child: _SmallGoalCard(
+                userGoal: g,
+                onStop: () => _stopGoal(g),
+                onInviteFriend:
+                    (!g.isWithFriend && g.friend == null)
+                        ? () => _showChallengeModal(g)
+                        : null,
+                isMutating: _isEnrolling || _isStopping,
+              ),
             ),
         ],
       ],
@@ -696,7 +794,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   Widget _buildAvailableGoalsSection() {
     final goals = _filteredAvailableGoals;
-    final hasActive = _activeGoals.isNotEmpty;
+    final activeProgramIds =
+        _activeGoals.map((g) => g.program.id).toSet();
 
     if (goals.isEmpty) {
       return const Padding(
@@ -720,7 +819,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             padding: const EdgeInsets.only(bottom: 12),
             child: _AvailableGoalCard(
               program: goal,
-              hasActiveGoal: hasActive,
+              hasActiveGoal: activeProgramIds.contains(goal.id),
               isEnrolling: _isEnrolling,
               onPressed: () => _enrollInGoal(goal),
             ),
@@ -789,11 +888,15 @@ class _CategoryChip extends StatelessWidget {
 
 class _ActiveGoalCard extends StatelessWidget {
   final UserGoal userGoal;
-  final VoidCallback onChallengeFriend;
+  final VoidCallback onStop;
+  final VoidCallback? onInviteFriend;
+  final bool isMutating;
 
   const _ActiveGoalCard({
     required this.userGoal,
-    required this.onChallengeFriend,
+    required this.onStop,
+    this.onInviteFriend,
+    this.isMutating = false,
   });
 
   @override
@@ -849,24 +952,54 @@ class _ActiveGoalCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0D7F53),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              SizedBox(
+                height: 36,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE57373),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                  onPressed: isMutating ? null : onStop,
+                  child: const Text(
+                    'Stop',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
-            ),
-            onPressed: () {
-              onChallengeFriend();
-            },
-            child: const Text(
-              'Challenge a friend',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+              if (onInviteFriend != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 32,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF0D7F53)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    onPressed: isMutating ? null : onInviteFriend,
+                    child: const Text(
+                      'Invite a friend',
+                      style: TextStyle(
+                        color: Color(0xFF0D7F53),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -876,8 +1009,16 @@ class _ActiveGoalCard extends StatelessWidget {
 
 class _SmallGoalCard extends StatelessWidget {
   final UserGoal userGoal;
+   final VoidCallback onStop;
+   final VoidCallback? onInviteFriend;
+   final bool isMutating;
 
-  const _SmallGoalCard({required this.userGoal});
+  const _SmallGoalCard({
+    required this.userGoal,
+    required this.onStop,
+    this.onInviteFriend,
+    this.isMutating = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -902,6 +1043,39 @@ class _SmallGoalCard extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+          ),
+          const SizedBox(width: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton(
+                onPressed: isMutating ? null : onStop,
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFE57373),
+                ),
+                child: const Text(
+                  'Stop',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (onInviteFriend != null)
+                TextButton(
+                  onPressed: isMutating ? null : onInviteFriend,
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF0D7F53),
+                  ),
+                  child: const Text(
+                    'Invite',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),

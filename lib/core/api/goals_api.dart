@@ -336,6 +336,27 @@ class GoalsApi {
     return UserGoal.fromJson(decoded);
   }
 
+  /// Stop (deactivate) an active user goal by its [userProgramId].
+  ///
+  /// This expects a backend endpoint at
+  /// `/api/goals/programs/<user_program_id>/stop/` that marks the program
+  /// inactive for the current user.
+  Future<void> stopGoal(int userProgramId) async {
+    final uri =
+        Uri.parse('$baseUrl/api/goals/programs/$userProgramId/stop/');
+
+    final response = await _client.post(
+      uri,
+      headers: _headers(),
+    );
+
+    if (response.statusCode != 200 &&
+        response.statusCode != 204 &&
+        response.statusCode != 202) {
+      throw _buildError(response);
+    }
+  }
+
   /// Create a challenge for the given program and friend.
   Future<void> createChallenge({
     required int programId,
@@ -375,6 +396,44 @@ class GoalsApi {
         .whereType<Map<String, dynamic>>()
         .map(GoalChallenge.fromJson)
         .toList();
+  }
+
+  /// Fetch pending email invitations for a specific program.
+  ///
+  /// This calls `/api/goals/challenges/pending-emails/?program_id=<id>` and
+  /// returns a list of email strings. The backend may return either a raw
+  /// list of strings or an object containing a `pending_emails` list; both
+  /// shapes are supported here.
+  Future<List<String>> fetchPendingChallengeEmails({
+    required int programId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/goals/challenges/pending-emails/')
+        .replace(queryParameters: <String, String>{
+      'program_id': '$programId',
+    });
+
+    final response = await _client.get(uri, headers: _headers());
+    if (response.statusCode != 200) {
+      throw _buildError(response);
+    }
+
+    final decoded = jsonDecode(response.body);
+
+    List<dynamic>? rawList;
+    if (decoded is List) {
+      rawList = decoded;
+    } else if (decoded is Map<String, dynamic>) {
+      final maybeList = decoded['pending_emails'];
+      if (maybeList is List) {
+        rawList = maybeList;
+      }
+    }
+
+    if (rawList == null) {
+      return const <String>[];
+    }
+
+    return rawList.map((e) => e.toString()).toList();
   }
 
   /// Accept a pending challenge and return the new [UserGoal].

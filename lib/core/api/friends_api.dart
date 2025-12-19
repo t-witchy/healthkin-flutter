@@ -23,9 +23,9 @@ class FriendActiveCreature {
       // Some responses may omit or null out `friend_id`; treat those as
       // invalid entries that will be filtered out by the callers.
       friendId: (json['friend_id'] as int?) ?? -1,
-      friendName: json['friend_name'] as String,
-      creatureNickname: json['creature_nickname'] as String,
-      creatureImageUrl: json['creature_image_url'] as String,
+      friendName: json['friend_name'] as String? ?? '',
+      creatureNickname: json['creature_nickname'] as String? ?? '',
+      creatureImageUrl: json['creature_image_url'] as String? ?? '',
     );
   }
 }

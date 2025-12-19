@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:healthkin_flutter/core/api/creature_api.dart';
+import 'package:healthkin_flutter/core/api/fitness_api.dart';
 import 'package:healthkin_flutter/core/api/goals_status_api.dart';
 import 'package:healthkin_flutter/core/provider/health_data_provider.dart';
 import 'package:healthkin_flutter/core/services/fitness_sync_service.dart';
 import 'package:healthkin_flutter/core/widgets/main_menu_overlay.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:healthkin_flutter/pages/friends_garden/friends_garden_screen.dart';
 import 'package:healthkin_flutter/pages/goals/goals_screen.dart';
 
@@ -891,18 +893,363 @@ class _ProgressScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'Progress',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 24,
-          fontWeight: FontWeight.w700,
+    return const _ProgressContent();
+  }
+}
+
+class _ProgressContent extends StatefulWidget {
+  const _ProgressContent();
+
+  @override
+  State<_ProgressContent> createState() => _ProgressContentState();
+}
+
+class _ProgressContentState extends State<_ProgressContent> {
+  final FitnessApi _fitnessApi = FitnessApi();
+
+  int _weekOffset = 0;
+  bool _isLoading = true;
+  String? _errorMessage;
+  List<WeeklyStepsPoint> _steps = const [];
+  List<WeeklyMinutesPoint> _minutes = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final results = await Future.wait([
+        _fitnessApi.fetchWeeklySteps(weekOffset: _weekOffset),
+        _fitnessApi.fetchWeeklyMinutes(weekOffset: _weekOffset),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _steps = results[0] as List<WeeklyStepsPoint>;
+        _minutes = results[1] as List<WeeklyMinutesPoint>;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.toString();
+      });
+    }
+  }
+
+  void _goToPreviousWeek() {
+    setState(() {
+      _weekOffset += 1;
+    });
+    _loadData();
+  }
+
+  void _goToNextWeek() {
+    if (_weekOffset == 0) return;
+    setState(() {
+      _weekOffset -= 1;
+    });
+    _loadData();
+  }
+
+  String _weekLabel() {
+    if (_weekOffset == 0) {
+      return 'This Week';
+    }
+    if (_weekOffset == 1) {
+      return 'Last Week';
+    }
+    return '${_weekOffset} weeks ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.menu,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: () {
+                  showMainMenuOverlay(context);
+                },
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Progress',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.chevron_left,
+                      color: Colors.white,
+                    ),
+                    onPressed: _goToPreviousWeek,
+                  ),
+                  Text(
+                    _weekLabel(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white,
+                    ),
+                    onPressed: _weekOffset == 0 ? null : _goToNextWeek,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
+        if (_errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              _errorMessage!,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        if (_isLoading)
+          const Expanded(
+            child: Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _WeeklyLineChartCard.steps(data: _steps),
+                  const SizedBox(height: 16),
+                  _WeeklyLineChartCard.minutes(data: _minutes),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
+
+class _WeeklyLineChartCard extends StatelessWidget {
+  final List<WeeklyStepsPoint>? _stepsData;
+  final List<WeeklyMinutesPoint>? _minutesData;
+  final bool _isSteps;
+
+  const _WeeklyLineChartCard.steps({
+    required List<WeeklyStepsPoint> data,
+    super.key,
+  })  : _stepsData = data,
+        _minutesData = null,
+        _isSteps = true;
+
+  const _WeeklyLineChartCard.minutes({
+    required List<WeeklyMinutesPoint> data,
+    super.key,
+  })  : _stepsData = null,
+        _minutesData = data,
+        _isSteps = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEmpty =
+        (_isSteps ? _stepsData?.isEmpty : _minutesData?.isEmpty) ?? true;
+
+    final title = _isSteps ? 'Weekly Steps' : 'Weekly Exercise Minutes';
+    final color = _isSteps
+        ? const Color(0xFF0D7F53)
+        : const Color(0xFF2F4F9F); // green vs blue tone
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3E6D8),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Mon – Sun',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 200,
+            child: isEmpty
+                ? const Center(
+                    child: Text(
+                      'No data for this week yet.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  )
+                : LineChart(
+                    _buildChartData(color),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  LineChartData _buildChartData(Color color) {
+    final spots = <FlSpot>[];
+    if (_isSteps) {
+      final data = _stepsData ?? const [];
+      for (var i = 0; i < data.length; i++) {
+        spots.add(FlSpot(i.toDouble(), data[i].totalSteps.toDouble()));
+      }
+    } else {
+      final data = _minutesData ?? const [];
+      for (var i = 0; i < data.length; i++) {
+        spots.add(FlSpot(i.toDouble(), data[i].totalExerciseMinutes.toDouble()));
+      }
+    }
+
+    double maxY = spots.fold<double>(
+      0,
+      (prev, s) => s.y > prev ? s.y : prev,
+    );
+    if (maxY == 0) {
+      maxY = 10;
+    }
+
+    return LineChartData(
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: maxY / 4,
+        getDrawingHorizontalLine: (value) => FlLine(
+          color: Colors.grey.withOpacity(0.3),
+          strokeWidth: 1,
+        ),
+      ),
+      titlesData: FlTitlesData(
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 40,
+            interval: maxY / 4,
+            getTitlesWidget: (value, meta) {
+              if (value < 0) return const SizedBox.shrink();
+              return Text(
+                value.toInt().toString(),
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.black54,
+                ),
+              );
+            },
+          ),
+        ),
+        rightTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        topTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: 1,
+            getTitlesWidget: (value, meta) {
+              const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+              if (value < 0 || value > 6) {
+                return const SizedBox.shrink();
+              }
+              final index = value.toInt();
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  labels[index],
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.black54,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      borderData: FlBorderData(
+        show: true,
+        border: Border.all(
+          color: Colors.grey.withOpacity(0.4),
+        ),
+      ),
+      minX: 0,
+      maxX: 6,
+      minY: 0,
+      maxY: maxY,
+      lineBarsData: [
+        LineChartBarData(
+          spots: spots,
+          isCurved: true,
+          color: color,
+          barWidth: 3,
+          dotData: FlDotData(show: true),
+          belowBarData: BarAreaData(
+            show: true,
+            color: color.withOpacity(0.2),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 
 class _FriendsScreen extends StatelessWidget {
   const _FriendsScreen();

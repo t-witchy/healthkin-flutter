@@ -40,6 +40,7 @@ dependencies:
   provider: ^6.1.2
   url_launcher: ^6.3.0
   health: ^10.2.0
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:
